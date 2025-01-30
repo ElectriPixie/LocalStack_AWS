@@ -5,29 +5,55 @@ def lambda_handler(event, context):
 
     # Get the REST API ID
     rest_api_response = apigateway.get_rest_apis()
+    if not rest_api_response['items']:
+        return {
+            'statusCode': 500,
+            'body': 'No REST API found'
+        }
+
     rest_api_id = rest_api_response['items'][0]['id']
 
-    # Get the integration ID
-    integration_response = apigateway.get_integration(
-        RestApiId=rest_api_id,
-        MethodName='GET'
-    )
-    integration_id = integration_response['id']
+    # Get the resources (endpoints)
+    resources_response = apigateway.get_resources(restApiId=rest_api_id)  # ✅ Corrected parameter name
+    resource_id = None
 
-    # Use the integration ID to update the integration
-    updated_integration_response = apigateway.update_integration(
-        RestApiId=rest_api_id,
-        ResourceId=integration_id,
-        MethodName='GET',
-        HttpMethod='GET',
-        RequestParameters={},
-        RequestTemplates={},
-        Responses=[{}],
-        Uri='lambda:lambda_function_name',
-        IntegrationType='LAMBDA',
-        RequestParameters={},
-        RequestTemplates={},
-        Responses=[{}]
+    # Find the resource with a GET method (adjust as needed)
+    for resource in resources_response['items']:
+        if 'GET' in resource.get('resourceMethods', {}):
+            resource_id = resource['id']
+            break
+
+    if not resource_id:
+        return {
+            'statusCode': 500,
+            'body': 'No resource with GET method found'
+        }
+
+    # Get integration details
+    try:
+        integration_response = apigateway.get_integration(
+            restApiId=rest_api_id,
+            resourceId=resource_id,
+            httpMethod='GET'
+        )
+    except apigateway.exceptions.NotFoundException:
+        return {
+            'statusCode': 500,
+            'body': 'Integration not found'
+        }
+
+    # Update integration using patch operations
+    apigateway.update_integration(
+        restApiId=rest_api_id,
+        resourceId=resource_id,
+        httpMethod='GET',
+        patchOperations=[
+            {
+                'op': 'replace',
+                'path': '/requestTemplates/application~1json',
+                'value': '{"statusCode": 200}'
+            }
+        ]
     )
 
     return {
